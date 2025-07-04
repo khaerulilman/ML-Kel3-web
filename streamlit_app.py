@@ -41,11 +41,15 @@ else:
 # --- Sidebar Input Data ---
 st.sidebar.header("📝 Tambah Data Transaksi")
 
-# Initialize session state
-if "show_success" not in st.session_state:
-    st.session_state.show_success = False
-if "success_message" not in st.session_state:
-    st.session_state.success_message = ""
+# Initialize session state untuk mencegah loop
+if "data_added" not in st.session_state:
+    st.session_state.data_added = False
+if "data_deleted" not in st.session_state:
+    st.session_state.data_deleted = False
+if "data_edited" not in st.session_state:
+    st.session_state.data_edited = False
+if "last_action_time" not in st.session_state:
+    st.session_state.last_action_time = 0
 
 with st.sidebar.form(key="input_form"):
     input_items = st.text_area(
@@ -61,12 +65,12 @@ if submit_button and input_items:
         try:
             response = requests.post(f"{API_URL}/dataset", json=items, timeout=5)
             if response.status_code == 200:
-                st.session_state.show_success = True
-                st.session_state.success_message = "✅ Data berhasil ditambahkan!"
+                st.sidebar.success("✅ Data berhasil ditambahkan!")
                 # Clear cache untuk memuat ulang data
                 st.cache_data.clear()
-                # Rerun tanpa infinite loop
-                st.rerun()
+                # Set flag untuk refresh data tanpa infinite loop
+                st.session_state.data_added = True
+                st.session_state.last_action_time = time.time()
             else:
                 error_msg = response.json().get('error', 'Gagal menambahkan data')
                 st.sidebar.error(f"❌ {error_msg}")
@@ -75,12 +79,9 @@ if submit_button and input_items:
     else:
         st.sidebar.warning("⚠️ Masukkan data yang valid")
 
-# Show success message
-if st.session_state.show_success:
-    st.sidebar.success(st.session_state.success_message)
-    # Reset success state after showing
-    st.session_state.show_success = False
-    st.session_state.success_message = ""
+# Reset flag setelah beberapa saat
+if st.session_state.data_added and (time.time() - st.session_state.last_action_time) > 2:
+    st.session_state.data_added = False
 
 # --- Tampilkan Dataset ---
 st.header("📊 Dataset Hukum Tajwid")
@@ -101,20 +102,34 @@ else:
             if st.button("✏️", key=f"edit_{idx}", help="Edit transaksi"):
                 st.session_state.edit_idx = idx
                 st.session_state.edit_value = ', '.join(transaction)
-                st.rerun()
         with col3:
+            # Menggunakan confirm dialog untuk delete
             if st.button("🗑️", key=f"del_{idx}", help="Hapus transaksi"):
-                try:
-                    response = requests.delete(f"{API_URL}/dataset/{idx}", timeout=5)
-                    if response.status_code == 200:
-                        st.success("✅ Transaksi berhasil dihapus!")
-                        st.cache_data.clear()
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error("❌ Gagal menghapus transaksi")
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
+                if f"confirm_delete_{idx}" not in st.session_state:
+                    st.session_state[f"confirm_delete_{idx}"] = True
+                else:
+                    try:
+                        response = requests.delete(f"{API_URL}/dataset/{idx}", timeout=5)
+                        if response.status_code == 200:
+                            st.success("✅ Transaksi berhasil dihapus!")
+                            st.cache_data.clear()
+                            # Reset confirmation state
+                            if f"confirm_delete_{idx}" in st.session_state:
+                                del st.session_state[f"confirm_delete_{idx}"]
+                            st.session_state.data_deleted = True
+                            st.session_state.last_action_time = time.time()
+                        else:
+                            st.error("❌ Gagal menghapus transaksi")
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
+        
+        # Tampilkan konfirmasi delete
+        if f"confirm_delete_{idx}" in st.session_state:
+            st.warning(f"⚠️ Yakin ingin menghapus transaksi {idx+1}? Klik lagi tombol hapus untuk konfirmasi.")
+
+# Reset delete flag
+if st.session_state.data_deleted and (time.time() - st.session_state.last_action_time) > 2:
+    st.session_state.data_deleted = False
 
 # --- Form Edit ---
 if "edit_idx" in st.session_state:
@@ -145,8 +160,8 @@ if "edit_idx" in st.session_state:
                     del st.session_state.edit_idx
                     del st.session_state.edit_value
                     st.cache_data.clear()
-                    time.sleep(1)
-                    st.rerun()
+                    st.session_state.data_edited = True
+                    st.session_state.last_action_time = time.time()
                 else:
                     st.error("❌ Gagal mengubah transaksi")
             except Exception as e:
@@ -155,7 +170,10 @@ if "edit_idx" in st.session_state:
     if cancel_edit:
         del st.session_state.edit_idx
         del st.session_state.edit_value
-        st.rerun()
+
+# Reset edit flag
+if st.session_state.data_edited and (time.time() - st.session_state.last_action_time) > 2:
+    st.session_state.data_edited = False
 
 # --- Proses Apriori ---
 if dataset:
