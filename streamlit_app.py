@@ -19,6 +19,7 @@ def check_api_connection():
         return False
 
 # Fungsi untuk mendapatkan dataset
+@st.cache_data(ttl=5)  # Cache data selama 5 detik
 def get_dataset():
     try:
         response = requests.get(f"{API_URL}/dataset", timeout=5)
@@ -39,6 +40,13 @@ else:
 
 # --- Sidebar Input Data ---
 st.sidebar.header("📝 Tambah Data Transaksi")
+
+# Initialize session state
+if "show_success" not in st.session_state:
+    st.session_state.show_success = False
+if "success_message" not in st.session_state:
+    st.session_state.success_message = ""
+
 with st.sidebar.form(key="input_form"):
     input_items = st.text_area(
         "Masukkan hukum tajwid (pisahkan dengan koma)",
@@ -53,8 +61,12 @@ if submit_button and input_items:
         try:
             response = requests.post(f"{API_URL}/dataset", json=items, timeout=5)
             if response.status_code == 200:
-                st.sidebar.success("✅ Data berhasil ditambahkan!")
-                st.experimental_rerun()
+                st.session_state.show_success = True
+                st.session_state.success_message = "✅ Data berhasil ditambahkan!"
+                # Clear cache untuk memuat ulang data
+                st.cache_data.clear()
+                # Rerun tanpa infinite loop
+                st.rerun()
             else:
                 error_msg = response.json().get('error', 'Gagal menambahkan data')
                 st.sidebar.error(f"❌ {error_msg}")
@@ -62,6 +74,13 @@ if submit_button and input_items:
             st.sidebar.error(f"❌ Error: {str(e)}")
     else:
         st.sidebar.warning("⚠️ Masukkan data yang valid")
+
+# Show success message
+if st.session_state.show_success:
+    st.sidebar.success(st.session_state.success_message)
+    # Reset success state after showing
+    st.session_state.show_success = False
+    st.session_state.success_message = ""
 
 # --- Tampilkan Dataset ---
 st.header("📊 Dataset Hukum Tajwid")
@@ -82,14 +101,16 @@ else:
             if st.button("✏️", key=f"edit_{idx}", help="Edit transaksi"):
                 st.session_state.edit_idx = idx
                 st.session_state.edit_value = ', '.join(transaction)
+                st.rerun()
         with col3:
             if st.button("🗑️", key=f"del_{idx}", help="Hapus transaksi"):
                 try:
                     response = requests.delete(f"{API_URL}/dataset/{idx}", timeout=5)
                     if response.status_code == 200:
                         st.success("✅ Transaksi berhasil dihapus!")
+                        st.cache_data.clear()
                         time.sleep(1)
-                        st.experimental_rerun()
+                        st.rerun()
                     else:
                         st.error("❌ Gagal menghapus transaksi")
                 except Exception as e:
@@ -123,8 +144,9 @@ if "edit_idx" in st.session_state:
                     st.success("✅ Transaksi berhasil diubah!")
                     del st.session_state.edit_idx
                     del st.session_state.edit_value
+                    st.cache_data.clear()
                     time.sleep(1)
-                    st.experimental_rerun()
+                    st.rerun()
                 else:
                     st.error("❌ Gagal mengubah transaksi")
             except Exception as e:
@@ -133,7 +155,7 @@ if "edit_idx" in st.session_state:
     if cancel_edit:
         del st.session_state.edit_idx
         del st.session_state.edit_value
-        st.experimental_rerun()
+        st.rerun()
 
 # --- Proses Apriori ---
 if dataset:
